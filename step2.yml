@@ -1,0 +1,243 @@
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: hello
+spec:
+  replicas: 3
+  selector:
+    app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NS
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "helloworld -addr=:7777 -text=Hello -target=world-v1"
+        ports:
+        - name: service
+          containerPort: 7777
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  selector:
+    app: hello
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7777
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: world-v1
+spec:
+  replicas: 3
+  selector:
+    app: world-v1
+  template:
+    metadata:
+      labels:
+        app: world-v1
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: TARGET_WORLD
+          value: world
+        args:
+        - "-addr=:7778"
+        ports:
+        - name: service
+          containerPort: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world-v1
+spec:
+  selector:
+    app: world-v1
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7778
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: l5d-config
+data:
+  config.yaml: |-
+    admin:
+      port: 9990
+
+    namers:
+    - kind: io.l5d.k8s
+      experimental: true
+      host: localhost
+      port: 8001
+
+    telemetry:
+    - kind: io.l5d.prometheus
+    - kind: io.l5d.recentRequests
+      sampleRate: 0.25
+
+    usage:
+      orgId: linkerd-examples-daemonset
+
+    routers:
+    - protocol: http
+      label: outgoing
+      identifier:
+        kind: io.l5d.path
+        segments: 1
+        consume: true
+      dtab: |
+        /srv        => /#/io.l5d.k8s/myproject/http;
+        /svc/hello => /srv/hello;
+        /svc/world => /srv/world-v1;
+      interpreter:
+        kind: default
+        transformers:
+        - kind: io.l5d.k8s.daemonset
+          namespace: myproject
+          port: incoming
+          service: l5d
+      servers:
+      - port: 4140
+        ip: 0.0.0.0
+      service:
+        responseClassifier:
+          kind: io.l5d.http.retryableRead5XX
+
+    - protocol: http
+      label: incoming
+      identifier:
+        kind: io.l5d.path
+        segments: 1
+        consume: true
+      dtab: |
+        /srv        => /#/io.l5d.k8s/myproject/http;
+        /svc/hello => /srv/hello;
+        /svc/world => /srv/world-v1;
+      interpreter:
+        kind: default
+        transformers:
+        - kind: io.l5d.k8s.localnode
+      servers:
+      - port: 4141
+        ip: 0.0.0.0
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  labels:
+    app: l5d
+  name: l5d
+spec:
+  template:
+    metadata:
+      labels:
+        app: l5d
+    spec:
+      volumes:
+      - name: l5d-config
+        configMap:
+          name: "l5d-config"
+      containers:
+      - name: l5d
+        image: buoyantio/linkerd:1.1.2
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        args:
+        - /io.buoyant/linkerd/config/config.yaml
+        ports:
+        - name: outgoing
+          containerPort: 4140
+          hostPort: 4140
+        - name: incoming
+          containerPort: 4141
+        - name: admin
+          containerPort: 9990
+        volumeMounts:
+        - name: "l5d-config"
+          mountPath: "/io.buoyant/linkerd/config"
+          readOnly: true
+
+      - name: kubectl
+        image: buoyantio/kubectl:v1.4.0
+        args:
+        - "proxy"
+        - "-p"
+        - "8001"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-outgoing
+spec:
+  selector:
+    app: l5d
+  type: LoadBalancer
+  ports:
+  - name: outgoing
+    port: 80
+    targetPort: 4140
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-incoming
+spec:
+  selector:
+    app: l5d
+  type: LoadBalancer
+  ports:
+  - name: incoming
+    port: 80
+    targetPort: 4141
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-admin
+spec:
+  selector:
+    app: l5d
+  type: LoadBalancer
+  ports:
+  - name: admin
+    port: 80
+    targetPort: 9990
