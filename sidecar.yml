@@ -1,0 +1,283 @@
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: hello
+spec:
+  replicas: 1
+  selector:
+    app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      volumes:
+      - name: l5d-config-hello
+        configMap:
+          name: "l5d-config-hello"
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NS
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "http_proxy=localhost:4140 helloworld -addr=:7777 -text=Hello -target=world"
+        ports:
+        - name: service
+          containerPort: 7777
+      - name: l5d
+        image: buoyantio/linkerd:1.1.2
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        args:
+        - /io.buoyant/linkerd/config/config.yaml
+        ports:
+        - name: outgoing
+          containerPort: 4140
+        - name: incoming
+          containerPort: 4141
+        - name: admin
+          containerPort: 9990
+        volumeMounts:
+        - name: "l5d-config-hello"
+          mountPath: "/io.buoyant/linkerd/config"
+          readOnly: true
+
+      - name: kubectl
+        image: buoyantio/kubectl:v1.4.0
+        args:
+        - "proxy"
+        - "-p"
+        - "8001"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  selector:
+    app: hello
+  ports:
+  - name: http
+    port: 80
+    targetPort: 4141
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-admin
+spec:
+  selector:
+    app: hello
+  ports:
+  - name: http
+    port: 80
+    targetPort: 9990
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: world-v1
+spec:
+  replicas: 3
+  selector:
+    app: world-v1
+  template:
+    metadata:
+      labels:
+        app: world-v1
+    spec:
+      volumes:
+      - name: l5d-config-world
+        configMap:
+          name: "l5d-config-world"
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: TARGET_WORLD
+          value: world
+        args:
+        - "-addr=:7778"
+        ports:
+        - name: service
+          containerPort: 7778
+      - name: l5d
+        image: buoyantio/linkerd:1.1.2
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        args:
+        - /io.buoyant/linkerd/config/config.yaml
+        ports:
+        - name: outgoing
+          containerPort: 4140
+        - name: incoming
+          containerPort: 4141
+        - name: admin
+          containerPort: 9990
+        volumeMounts:
+        - name: "l5d-config-world"
+          mountPath: "/io.buoyant/linkerd/config"
+          readOnly: true
+
+      - name: kubectl
+        image: buoyantio/kubectl:v1.4.0
+        args:
+        - "proxy"
+        - "-p"
+        - "8001"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world-v1
+spec:
+  selector:
+    app: world-v1
+  ports:
+  - name: http
+    port: 80
+    targetPort: 4141
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world-v1-admin
+spec:
+  selector:
+    app: world-v1
+  ports:
+  - name: admin
+    port: 80
+    targetPort: 9990
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: l5d-config-hello
+data:
+  config.yaml: |-
+    admin:
+      port: 9990
+
+    namers:
+    - kind: io.l5d.k8s
+      experimental: true
+      host: localhost
+      port: 8001
+
+    telemetry:
+    - kind: io.l5d.prometheus
+    - kind: io.l5d.recentRequests
+      sampleRate: 1
+
+    usage:
+      orgId: linkerd-examples-daemonset
+
+    routers:
+    - protocol: http
+      label: outgoing
+      dtab: |
+        /ph        => /$/io.buoyant.rinet ; # Lookup the name in DNS
+        /srv       => /ph/80 ; # Use port 80 if unspecified
+        /srv       => /$/io.buoyant.porthostPfx/ph ; # Attempt to extract the port from the hostname
+        /srv       => /#/io.l5d.k8s/myproject/http ; # Lookup the name in Kubernetes, use the linkerd daemonset pod
+        /svc       => /srv ;
+        /svc/world => /srv/world-v1 ;
+      interpreter:
+        kind: default
+      servers:
+      - port: 4140
+        ip: 0.0.0.0
+      service:
+        responseClassifier:
+          kind: io.l5d.http.retryableRead5XX
+
+    - protocol: http
+      label: incoming
+      dtab: |
+        /svc        => /$/inet/127.0.0.1/7777;
+      interpreter:
+        kind: default
+      servers:
+      - port: 4141
+        ip: 0.0.0.0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: l5d-config-world
+data:
+  config.yaml: |-
+    admin:
+      port: 9990
+
+    namers:
+    - kind: io.l5d.k8s
+      experimental: true
+      host: localhost
+      port: 8001
+
+    telemetry:
+    - kind: io.l5d.prometheus
+    - kind: io.l5d.recentRequests
+      sampleRate: 1
+
+    usage:
+      orgId: linkerd-examples-daemonset
+
+    routers:
+    - protocol: http
+      label: outgoing
+      dtab: |
+        /ph        => /$/io.buoyant.rinet ; # Lookup the name in DNS
+        /srv       => /ph/80 ; # Use port 80 if unspecified
+        /srv       => /$/io.buoyant.porthostPfx/ph ; # Attempt to extract the port from the hostname
+        /srv       => /#/io.l5d.k8s/myproject/http ; # Lookup the name in Kubernetes, use the linkerd daemonset pod
+        /svc       => /srv ;
+        /svc/world => /srv/world-v1 ;
+      interpreter:
+        kind: default
+      servers:
+      - port: 4140
+        ip: 0.0.0.0
+      service:
+        responseClassifier:
+          kind: io.l5d.http.retryableRead5XX
+
+    - protocol: http
+      label: incoming
+      dtab: |
+        /svc        => /$/inet/127.0.0.1/7778;
+      interpreter:
+        kind: default
+      servers:
+      - port: 4141
+        ip: 0.0.0.0
+---
