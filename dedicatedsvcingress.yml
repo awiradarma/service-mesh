@@ -156,8 +156,10 @@ spec:
               fieldPath: status.podIP
         - name: TARGET_WORLD
           value: world
-        args:
-        - "-addr=:7778"
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "http_proxy=l5d-outgoing:80 helloworld -addr=:7778 -text=world -target=services.groupkt.com/state/get/usa/vi"
         ports:
         - name: service
           containerPort: 7778
@@ -200,16 +202,13 @@ data:
     routers:
     - protocol: http
       label: outgoing
-      identifier:
-        kind: io.l5d.path
-        segments: 2
       dtab: |
         /ph        => /$/io.buoyant.rinet ; # Lookup the name in DNS
         /srv       => /ph/80 ; # Use port 80 if unspecified
         /srv       => /$/io.buoyant.porthostPfx/ph ; # Attempt to extract the port from the hostname
         /srv       => /#/io.l5d.k8s/myproject/http ; # Lookup the name in Kubernetes, use the linkerd daemonset pod
         /svc       => /srv ;
-        /svc/rest/world => /srv/l5d-incoming ;
+        /svc/api.acme.com  => /srv/l5d-incoming ;
       interpreter:
         kind: default
       servers:
