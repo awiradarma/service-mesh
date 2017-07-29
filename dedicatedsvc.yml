@@ -1,0 +1,236 @@
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: l5d
+spec:
+  replicas: 1
+  selector:
+    app: l5d
+  template:
+    metadata:
+      labels:
+        app: l5d
+    spec:
+      volumes:
+      - name: l5d-config
+        configMap:
+          name: "l5d-config"
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: l5d
+        image: buoyantio/linkerd:1.1.2
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        args:
+        - /io.buoyant/linkerd/config/config.yaml
+        ports:
+        - name: outgoing
+          containerPort: 4140
+        - name: incoming
+          containerPort: 4141
+        - name: admin
+          containerPort: 9990
+        volumeMounts:
+        - name: "l5d-config"
+          mountPath: "/io.buoyant/linkerd/config"
+          readOnly: true
+
+      - name: kubectl
+        image: buoyantio/kubectl:v1.4.0
+        args:
+        - "proxy"
+        - "-p"
+        - "8001"
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: hello
+spec:
+  replicas: 3
+  selector:
+    app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NS
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "http_proxy=l5d-outgoing:80 helloworld -addr=:7777 -text=Hello -target=api.acme.com/rest/world"
+        ports:
+        - name: service
+          containerPort: 7777
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  selector:
+    app: hello
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7777
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-admin
+spec:
+  selector:
+    app: l5d
+  ports:
+  - name: admin
+    port: 80
+    targetPort: 9990
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-outgoing
+spec:
+  selector:
+    app: l5d
+  ports:
+  - name: outgoing
+    port: 80
+    targetPort: 4140
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-incoming
+spec:
+  selector:
+    app: l5d
+  ports:
+  - name: incoming
+    port: 80
+    targetPort: 4141
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: world-v1
+spec:
+  replicas: 3
+  selector:
+    app: world-v1
+  template:
+    metadata:
+      labels:
+        app: world-v1
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: TARGET_WORLD
+          value: world
+        args:
+        - "-addr=:7778"
+        ports:
+        - name: service
+          containerPort: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world-v1
+spec:
+  selector:
+    app: world-v1
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7778
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: l5d-config
+data:
+  config.yaml: |-
+    admin:
+      port: 9990
+
+    namers:
+    - kind: io.l5d.k8s
+      experimental: true
+      host: localhost
+      port: 8001
+
+    telemetry:
+    - kind: io.l5d.prometheus
+    - kind: io.l5d.recentRequests
+      sampleRate: 1
+
+    usage:
+      orgId: linkerd-examples-daemonset
+
+    routers:
+    - protocol: http
+      label: outgoing
+      identifier:
+        kind: io.l5d.path
+        segments: 2
+      dtab: |
+        /ph        => /$/io.buoyant.rinet ; # Lookup the name in DNS
+        /srv       => /ph/80 ; # Use port 80 if unspecified
+        /srv       => /$/io.buoyant.porthostPfx/ph ; # Attempt to extract the port from the hostname
+        /srv       => /#/io.l5d.k8s/myproject/http ; # Lookup the name in Kubernetes, use the linkerd daemonset pod
+        /svc       => /srv ;
+        /svc/rest/world => /srv/l5d-incoming ;
+      interpreter:
+        kind: default
+      servers:
+      - port: 4140
+        ip: 0.0.0.0
+      service:
+        responseClassifier:
+          kind: io.l5d.http.retryableRead5XX
+
+    - protocol: http
+      label: incoming
+      identifier:
+        kind: io.l5d.path
+        segments: 2
+      dtab: |
+        /srv       => /#/io.l5d.k8s/myproject/http ; # Lookup the name in Kubernetes, use the linkerd daemonset pod
+        /svc/rest/hello => /srv/hello;
+        /svc/rest/world => /srv/world-v1 ;
+      interpreter:
+        kind: default
+      servers:
+      - port: 4141
+        ip: 0.0.0.0
+---
