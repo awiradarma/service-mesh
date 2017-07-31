@@ -79,7 +79,7 @@ spec:
         command:
         - "/bin/sh"
         - "-c"
-        - "http_proxy=l5d-outgoing:80 helloworld -addr=:7777 -text=Hello -target=api.acme.com/rest/world"
+        - "http_proxy=l5d-outgoing:80 helloworld -addr=:7777 -text=Hello -target=myproject.acme.com/rest/world"
         ports:
         - name: service
           containerPort: 7777
@@ -190,7 +190,10 @@ data:
       experimental: true
       host: localhost
       port: 8001
-
+    - kind: io.l5d.rewrite
+      prefix: /rewrite
+      pattern: "/{service}"
+      name: "/acme/{service}/incoming/l5d-incoming"
     telemetry:
     - kind: io.l5d.prometheus
     - kind: io.l5d.recentRequests
@@ -202,13 +205,18 @@ data:
     routers:
     - protocol: http
       label: outgoing
+      identifier:
+        kind: io.l5d.header.token
+        header: Host
       dtab: |
-        /ph        => /$/io.buoyant.rinet ; # Lookup the name in DNS
-        /srv       => /ph/80 ; # Use port 80 if unspecified
-        /srv       => /$/io.buoyant.porthostPfx/ph ; # Attempt to extract the port from the hostname
-        /srv       => /#/io.l5d.k8s/myproject/http ; # Lookup the name in Kubernetes, use the linkerd daemonset pod
-        /svc       => /srv ;
-        /svc/api.acme.com  => /srv/l5d-incoming ;
+        /ph=>/$/io.buoyant.rinet;
+        /srv=>/ph/80;
+        /srv=>/$/io.buoyant.porthostPfx/ph;
+        /s=>/#/io.l5d.k8s;
+        /project =>/s;
+        /acme =>/$/io.buoyant.http.subdomainOfPfx/acme.com/project;
+        /svc => /srv;
+        /svc => /#/rewrite
       interpreter:
         kind: default
       servers:
