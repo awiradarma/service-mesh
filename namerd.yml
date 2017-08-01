@@ -1,0 +1,95 @@
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: namerd
+spec:
+  replicas: 1
+  selector:
+    app: namerd
+  template:
+    metadata:
+      labels:
+        app: namerd
+    spec:
+      volumes:
+      - name: namerd-config
+        configMap:
+          name: "namerd-config"
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: namerd
+        image: buoyantio/namerd:1.1.2
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        args:
+        - /io.buoyant/linkerd/config/config.yaml
+        ports:
+        - name: namerd
+          containerPort: 4180
+        - name: admin
+          containerPort: 9991
+        volumeMounts:
+        - name: "namerd-config"
+          mountPath: "/io.buoyant/linkerd/config"
+          readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: namerd
+spec:
+  selector:
+    app: namerd
+  ports:
+  - name: namerd
+    port: 80
+    targetPort: 4180
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: namerd-admin
+spec:
+  selector:
+    app: namerd
+  ports:
+  - name: admin
+    port: 80
+    targetPort: 9991
+---
+ApiVersion: v1
+kind: ConfigMap
+metadata:
+  name: namerd-config
+data:
+  config.yaml: |-
+    storage:
+      kind: io.l5d.inMemory
+      namespaces:
+        myproject: |
+          /ph=>/$/io.buoyant.rinet;
+          /srv=>/ph/80;
+          /srv=>/$/io.buoyant.porthostPfx/ph;
+          /s=>/#/io.l5d.k8s;
+          /project =>/s;
+          /acme =>/$/io.buoyant.http.subdomainOfPfx/acme.com/project;
+          /svc => /srv;
+          /svc => /#/rewrite
+    namers:
+    - kind: io.l5d.k8s
+      experimental: true
+      host: localhost
+      port: 8001
+    - kind: io.l5d.rewrite
+      prefix: /rewrite
+      pattern: "/{service}"
+      name: "/acme/{service}/incoming/l5d-incoming"
+    interfaces:
+    - kind: io.l5d.httpController
+      port: 4180
+    admin:
+      port: 9991
