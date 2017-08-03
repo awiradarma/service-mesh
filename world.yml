@@ -1,0 +1,228 @@
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: l5d
+spec:
+  replicas: 1
+  selector:
+    app: l5d
+  template:
+    metadata:
+      labels:
+        app: l5d
+    spec:
+      volumes:
+      - name: l5d-config
+        configMap:
+          name: "l5d-config"
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: l5d
+        image: buoyantio/linkerd:1.1.2
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        args:
+        - /io.buoyant/linkerd/config/config.yaml
+        ports:
+        - name: outgoing
+          containerPort: 4140
+        - name: incoming
+          containerPort: 4141
+        - name: admin
+          containerPort: 9990
+        volumeMounts:
+        - name: "l5d-config"
+          mountPath: "/io.buoyant/linkerd/config"
+          readOnly: true
+
+      - name: kubectl
+        image: buoyantio/kubectl:v1.4.0
+        args:
+        - "proxy"
+        - "-p"
+        - "8001"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-admin
+spec:
+  selector:
+    app: l5d
+  ports:
+  - name: admin
+    port: 80
+    targetPort: 9990
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-outgoing
+spec:
+  selector:
+    app: l5d
+  ports:
+  - name: outgoing
+    port: 80
+    targetPort: 4140
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: l5d-incoming
+spec:
+  selector:
+    app: l5d
+  ports:
+  - name: incoming
+    port: 80
+    targetPort: 4141
+---
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: world-v1
+spec:
+  replicas: 3
+  selector:
+    app: world-v1
+  template:
+    metadata:
+      labels:
+        app: world-v1
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: TARGET_WORLD
+          value: world
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "http_proxy=l5d-outgoing:80 helloworld -addr=:7778 -text=world -target=services.groupkt.com/state/get/usa/vi"
+        ports:
+        - name: service
+          containerPort: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world-v1
+spec:
+  selector:
+    app: world-v1
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7778
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: l5d-config
+data:
+  config.yaml: |-
+    admin:
+      port: 9990
+
+    namers:
+    - kind: io.l5d.k8s
+      experimental: true
+      host: localhost
+      port: 8001
+    - kind: io.l5d.rewrite
+      prefix: /rewrite
+      pattern: "/{service}"
+      name: "/acme/{service}/incoming/l5d-incoming"
+    telemetry:
+    - kind: io.l5d.prometheus
+    - kind: io.l5d.recentRequests
+      sampleRate: 1
+
+    usage:
+      orgId: linkerd-examples-daemonset
+
+    routers:
+    - protocol: http
+      label: outgoing
+      identifier:
+        kind: io.l5d.header.token
+        header: Host
+      dtab: |
+        /ph=>/$/io.buoyant.rinet;
+        /srv=>/ph/80;
+        /srv=>/$/io.buoyant.porthostPfx/ph;
+        /s=>/#/io.l5d.k8s;
+        /project =>/s;
+        /acme =>/$/io.buoyant.http.subdomainOfPfx/acme.com/project;
+        /svc => /srv;
+        /svc => /#/rewrite
+      interpreter:
+        kind: default
+      servers:
+      - port: 4140
+        ip: 0.0.0.0
+      service:
+        responseClassifier:
+          kind: io.l5d.http.retryableRead5XX
+
+    - protocol: http
+      label: incoming
+      identifier:
+        kind: io.l5d.ingress
+        namespace: world
+      dtab: |
+        /svc => /#/io.l5d.k8s
+      servers:
+      - port: 4141
+        ip: 0.0.0.0
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: world
+  namespace: world
+annotations:
+    kubernetes.io/ingress.class: "linkerd"
+spec:
+  backend:
+    serviceName: world-v1
+    servicePort: http
+  rules:
+  - http:
+      paths: 
+      - path: /rest/world
+        backend:
+          serviceName: world-v1
+          servicePort: http
+---
+apiVersion: v1
+kind: Route
+metadata:
+  name: world-l5d-incoming
+spec:
+  host: world.acme.com
+  to:
+    kind: Service
+    name: l5d-incoming
+---
+apiVersion: v1
+kind: Route
+metadata:
+  name: world-l5d-admin
+spec:
+  host: l5d.world.acme.com
+  to:
+    kind: Service
+    name: l5d-admin
+---
