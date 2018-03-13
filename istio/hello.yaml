@@ -1,0 +1,172 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: hello
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: hello
+        version: v1
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: hello
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NS
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "helloworld -addr=:7777 -text=Hello -target=world"
+        ports:
+        - name: hello
+          containerPort: 7777
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: morning
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: hello
+        version: v2
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: hello
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NS
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "helloworld -addr=:7777 -text=Morning -target=world"
+        ports:
+        - name: hello
+          containerPort: 7777
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  selector:
+    app: hello
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7777
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: world
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: world
+        version: v1
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: TARGET_WORLD
+          value: world
+        args:
+        - "-addr=:7778"
+        ports:
+        - name: service
+          containerPort: 7778
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: world
+spec:
+  selector:
+    app: world
+  ports:
+  - name: http
+    port: 80
+    targetPort: 7778
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: world-v2
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: world
+        version: v2
+    spec:
+      dnsPolicy: ClusterFirst
+      containers:
+      - name: service
+        image: buoyantio/helloworld:0.1.4
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: TARGET_WORLD
+          value: earth
+        args:
+        - "-addr=:7778"
+        ports:
+        - name: service
+          containerPort: 7778
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: hello
+  annotations:
+    kubernetes.io/ingress.class: "istio"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /hello
+        backend:
+          serviceName: hello
+          servicePort: 80
+---
