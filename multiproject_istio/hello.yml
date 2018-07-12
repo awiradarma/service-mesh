@@ -29,7 +29,7 @@ spec:
         command:
         - "/bin/sh"
         - "-c"
-        - "helloworld -addr=:7778 -text=hello -target=world.world"
+        - "helloworld -addr=:7778 -text=hello -target=world.world.svc.cluster.local"
         ports:
         - name: service
           containerPort: 7778
