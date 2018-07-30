@@ -12,24 +12,6 @@ spec:
       protocol: HTTP
     hosts:
     - istio-ingressgateway-istio-system.127.0.0.1.nip.io
-    - world.world
-    - earth.world
----
-apiVersion: networking.istio.io/v1alpha3
-kind: Gateway
-metadata:
-  name: hello
-spec:
-  selector:
-    app: hello
-  servers:
-  - port:
-      number: 80
-      name: http
-      protocol: HTTP
-    hosts:
-    - hello.hello
-    - hello.hello.svc.cluster.local
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
@@ -37,20 +19,14 @@ metadata:
   name: world
 spec:
   hosts:
-  - world.world
   - world.world.svc.cluster.local
-  - earth.world
-  - earth.world.svc.cluster.local
   gateways:
-  - hello-gateway
-  - hello
-  - world
   - mesh
   http:
     - route:
       - destination:
           host: world.world.svc.cluster.local
-          subset: v1
+          subset: v2
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
@@ -61,9 +37,6 @@ spec:
   - istio-ingressgateway-istio-system.127.0.0.1.nip.io
   gateways:
   - hello-gateway
-  - world
-  - hello
-  - mesh
   http:
   - match:
     - uri:
