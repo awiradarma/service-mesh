@@ -1,0 +1,17 @@
+# Change RBAC component log level to debug
+curl -X POST "http://localhost:7000/logging?rbac=debug"
+
+# Change HTTP component log level to debug
+curl -X POST "http://localhost:7000/logging?http=debug"
+
+# Change all components log level to trace
+curl -X POST "http://localhost:7000/logging?level=trace"
+
+# port forward port 15000 (envoy UI) on the specified pod to port 7000 on localhost
+kubectl port-forward world-v1-7b6656d65-4jmz2 7000:15000
+
+istioctl proxy-status
+istioctl proxy-config ...
+
+istioctl authn tls-check world-v1-7b6656d65-4jmz2 -n world
+

@@ -1,0 +1,12 @@
+apiVersion: "istio.openshift.com/v1alpha1"
+kind: "Installation"
+metadata:
+  name: "istio-installation"
+  namespace: istio-operator
+spec:
+  deployment_type: origin
+  istio:
+    authentication: false
+    community: true
+    prefix: maistra/
+    version: 0.9.0

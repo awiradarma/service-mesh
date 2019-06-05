@@ -1,0 +1,9 @@
+apiVersion: "rbac.istio.io/v1alpha1"
+kind: ServiceRole
+metadata:
+  name: hello-viewer
+  namespace: hello
+spec:
+  rules:
+  - services: ["hello.hello.svc.cluster.local"]
+    methods: ["GET"]

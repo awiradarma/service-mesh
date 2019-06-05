@@ -1,0 +1,12 @@
+apiVersion: "rbac.istio.io/v1alpha1"
+kind: ServiceRoleBinding
+metadata:
+  name: bind-hello-viewer
+  namespace: hello
+spec:
+  subjects:
+  - properties:
+      request.auth.claims[role]: "admin"
+  roleRef:
+    kind: ServiceRole
+    name: "hello-viewer"

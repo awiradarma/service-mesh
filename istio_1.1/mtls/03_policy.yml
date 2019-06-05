@@ -1,0 +1,23 @@
+apiVersion: "authentication.istio.io/v1alpha1"
+kind: "Policy"
+metadata:
+  name: "hello-permissive"
+  namespace: hello
+spec:
+  targets:
+  - name: hello
+  peers:
+  - mtls:
+      mode: STRICT
+---
+apiVersion: "authentication.istio.io/v1alpha1"
+kind: "Policy"
+metadata:
+  name: "world-permissive"
+  namespace: world
+spec:
+  targets:
+  - name: world
+  peers:
+  - mtls:
+      mode: PERMISSIVE

@@ -1,0 +1,21 @@
+apiVersion: "istio.openshift.com/v1alpha1"
+kind: "Installation"
+metadata:
+  name: "istio-installation"
+  namespace: istio-operator
+spec:
+  deployment_type: origin
+  istio:
+    authentication: true
+    community: true
+    prefix: maistra/
+    version: 0.9.0
+  jaeger:
+    prefix: jaegertracing/
+    version: 1.11
+    elasticsearch_memory: 128M
+  kiali:
+    username: kiali
+    password: kiali
+    prefix: kiali/
+    version: v0.15.0
