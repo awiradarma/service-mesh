@@ -1,12 +1,14 @@
-oc login -u system:admin
-oc new-project hello
-oc project hello
-#oc adm policy add-cluster-role-to-user cluster-reader -z default 
-oc apply -f hello.yml
-oc new-project world
-oc project world
-#oc adm policy add-cluster-role-to-user cluster-reader -z default 
-oc adm policy add-cluster-role-to-user cluster-admin -z default
-oc adm policy add-scc-to-user privileged -z default
-oc adm policy add-scc-to-user anyuid -z default
-oc apply -f world.yml
+oc3 login -u system:admin
+oc3 new-project hello
+oc3 project hello
+#oc label namespace hello istio-injection=enabled
+#oc2 adm policy add-scc-to-user privileged -z default -n hello
+oc3 apply -f hello.yml
+#oc2 apply -f ingress_hello.yml
+oc3 new-project world
+oc3 project world
+#oc label namespace world istio-injection=enabled
+#oc2 adm policy add-scc-to-user privileged -z default -n world
+oc3 apply -f world.yml
+#oc2 apply -f ingress_world.yml
+#oc2 get route -n istio-system
