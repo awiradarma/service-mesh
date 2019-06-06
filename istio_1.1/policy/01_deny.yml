@@ -1,0 +1,24 @@
+apiVersion: "config.istio.io/v1alpha2"
+kind: denier
+metadata:
+  name: denyifnotfromhello
+spec:
+  status:
+    code: 7
+    message: Not allowed
+---
+apiVersion: "config.istio.io/v1alpha2"
+kind: checknothing
+metadata:
+  name: denyifnotfromhellocheck
+spec:
+---
+apiVersion: "config.istio.io/v1alpha2"
+kind: rule
+metadata:
+  name: denyrule
+spec:
+  match: source.namespace != "hello" && destination.service.name == "world"
+  actions:
+  - handler: denyifnotfromhello.denier
+    instances: [ denyifnotfromhellocheck.checknothing ]
